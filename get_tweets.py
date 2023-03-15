@@ -1,10 +1,11 @@
-from datetime import datetime
 import time
 import requests
 import tweepy
 import json
 import pandas as pd
 from typing import List, Tuple
+
+from constants import CLASSIFIER_VERSION, RELEVANT_TIMESPANS, make_relevant_df_name
 
 
 api_key = json.load(open("bearer_tokens.json"))[1]["token"]
@@ -13,15 +14,6 @@ client = tweepy.Client(bearer_token=api_key)
 THROTTLE_GET_TWEETS_DATA_FROM_API = 100
 TWEET_FIELDS = ["author_id", "created_at"]
 EXPANSIONS = ["referenced_tweets.id"]
-
-make_relevant_df_name = (
-    lambda dates: f"subsets/relevant_tweets_{dates[0]}_{dates[1]}.csv"
-)
-
-RELEVANT_TIMESPANS = [
-    ("2019-03-05", "2019-03-25"),
-    ("2019-09-10", "2019-09-30"),
-]
 
 
 def get_subset_for_dates(df, start_date, end_date):
@@ -42,13 +34,13 @@ def generate_relevant_subsets():
         dfr.to_csv(make_relevant_df_name(dates), index=False)
 
 
-def get_tweets_metrics(tweet_ids: List[int]) -> List[dict]:
+def get_tweets_data(tweet_ids: List[int]) -> List[dict]:
     # If the list is bigger than 100 elements, split it into chunks of 100 elements.
     if len(tweet_ids) > 100:
         tweets_data = []
         for i in range(0, len(tweet_ids), 100):
             print(f"Getting tweets {i} to {i + 100} of {len(tweet_ids)}")
-            tweets_data += get_tweets_metrics(tweet_ids[i : i + 100])
+            tweets_data += get_tweets_data(tweet_ids[i : i + 100])
 
             if len(tweet_ids) - i >= 100:
                 # If we're not on the last pull, throttle the call a bit
@@ -76,7 +68,18 @@ def get_tweets_metrics(tweet_ids: List[int]) -> List[dict]:
                 "author_id": tweet.author_id,
                 "referenced_tweets": json.dumps(
                     [
-                        {"tweet_id": r_tweet.id, "type": r_tweet.type}
+                        {
+                            "tweet_id": r_tweet.id,
+                            "type": r_tweet.type,
+                            "text": next(
+                                (
+                                    rt.text
+                                    for rt in response.includes["tweets"]
+                                    if rt.id == r_tweet.id
+                                ),
+                                None,
+                            ),
+                        }
                         for r_tweet in tweet.referenced_tweets
                     ]
                 )
@@ -90,29 +93,36 @@ def get_tweets_metrics(tweet_ids: List[int]) -> List[dict]:
 def hydrate_relevant_subsets():
     # For each relevant subset, hydrate, using the tweet ids, the tweets data, including:
 
-    for dates in RELEVANT_TIMESPANS:
+    for dates in RELEVANT_TIMESPANS[:1]:
         df = pd.read_csv(make_relevant_df_name(dates))
         tweet_ids = [str(x) for x in df["id"].values]
 
-        tweets_data = get_tweets_metrics(tweet_ids)
+        tweets_data = get_tweets_data(tweet_ids)
 
         df = pd.DataFrame(tweets_data)
 
-        df.to_csv(f"subsets/hydrated_tweets_{dates[0]}_{dates[1]}.csv", index=False)
+        df.to_csv(
+            f"subsets_v{CLASSIFIER_VERSION}/hydrated_tweets_{dates[0]}_{dates[1]}.csv",
+            index=False,
+        )
 
 
 def get_texts_for_tweets(dates: Tuple[str, str], date: str):
     # In this df, pick the hydrated tweets of the day indicated in date "YYYY-MM-DD"
     # Output this as a list of strings, where each string is a tweet text
 
-    df = pd.read_csv(f"subsets/hydrated_tweets_{dates[0]}_{dates[1]}.csv")
+    df = pd.read_csv(
+        f"subsets_v{CLASSIFIER_VERSION}/hydrated_tweets_{dates[0]}_{dates[1]}.csv"
+    )
     df = df[df["created_at"].str.startswith(date)]
     return df["text"].values.tolist()
 
 
 def analysis_of_hydrated_tweets(dates: Tuple[str, str]):
     # For the dates chosen, first join the hydrated tweets with the original subset of tweets
-    df = pd.read_csv(f"subsets/hydrated_tweets_{dates[0]}_{dates[1]}.csv")
+    df = pd.read_csv(
+        f"subsets_v{CLASSIFIER_VERSION}/hydrated_tweets_{dates[0]}_{dates[1]}.csv"
+    )
     df_original = pd.read_csv(make_relevant_df_name(dates))
 
     df = df_original.merge(df, on="id", how="inner")
@@ -132,4 +142,5 @@ def analysis_of_hydrated_tweets(dates: Tuple[str, str]):
         print()
 
 
-analysis_of_hydrated_tweets(("2019-03-05", "2019-03-25"))
+if __name__ == "__main__":
+    hydrate_relevant_subsets()

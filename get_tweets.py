@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, date
 import requests
 import tweepy
 import json
@@ -13,7 +14,16 @@ client = tweepy.Client(bearer_token=api_key)
 
 THROTTLE_GET_TWEETS_DATA_FROM_API = 100
 TWEET_FIELDS = ["author_id", "created_at"]
-EXPANSIONS = ["referenced_tweets.id"]
+EXPANSIONS = ["referenced_tweets.id", "author_id"]
+USER_FIELDS = ["description", "created_at"]
+
+
+# Necessary to serialize datetime objects that are part of the tweet object created by tweepy
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return json.JSONEncoder.default(self, obj)
 
 
 def get_subset_for_dates(df, start_date, end_date):
@@ -50,7 +60,10 @@ def get_tweets_data(tweet_ids: List[int]) -> List[dict]:
 
     else:
         make_call = lambda ids: client.get_tweets(
-            ids, tweet_fields=TWEET_FIELDS, expansions=EXPANSIONS
+            ids,
+            tweet_fields=TWEET_FIELDS,
+            expansions=EXPANSIONS,
+            user_fields=USER_FIELDS,
         )
         try:
             response = make_call(tweet_ids)
@@ -85,6 +98,23 @@ def get_tweets_data(tweet_ids: List[int]) -> List[dict]:
                 )
                 if tweet.referenced_tweets
                 else None,
+                "author": next(
+                    (
+                        json.dumps(
+                            {
+                                "id": user.id,
+                                "created_at": user.created_at,
+                                "description": user.description,
+                                "name": user.name,
+                                "username": user.username,
+                            },
+                            cls=DateTimeEncoder,
+                        )
+                        for user in response.includes["users"]
+                        if user.id == tweet.author_id
+                    ),
+                    None,
+                ),
             }
             for tweet in response.data
         ]
@@ -97,7 +127,7 @@ def hydrate_relevant_subsets():
         df = pd.read_csv(make_relevant_df_name(dates))
         tweet_ids = [str(x) for x in df["id"].values]
 
-        tweets_data = get_tweets_data(tweet_ids)
+        tweets_data = get_tweets_data(tweet_ids[:1])
 
         df = pd.DataFrame(tweets_data)
 
@@ -105,17 +135,6 @@ def hydrate_relevant_subsets():
             f"subsets_v{CLASSIFIER_VERSION}/hydrated_tweets_{dates[0]}_{dates[1]}.csv",
             index=False,
         )
-
-
-def get_texts_for_tweets(dates: Tuple[str, str], date: str):
-    # In this df, pick the hydrated tweets of the day indicated in date "YYYY-MM-DD"
-    # Output this as a list of strings, where each string is a tweet text
-
-    df = pd.read_csv(
-        f"subsets_v{CLASSIFIER_VERSION}/hydrated_tweets_{dates[0]}_{dates[1]}.csv"
-    )
-    df = df[df["created_at"].str.startswith(date)]
-    return df["text"].values.tolist()
 
 
 def analysis_of_hydrated_tweets(dates: Tuple[str, str]):
@@ -143,4 +162,5 @@ def analysis_of_hydrated_tweets(dates: Tuple[str, str]):
 
 
 if __name__ == "__main__":
+    # generate_relevant_subsets()
     hydrate_relevant_subsets()

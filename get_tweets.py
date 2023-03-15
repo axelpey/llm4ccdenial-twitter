@@ -110,4 +110,26 @@ def get_texts_for_tweets(dates: Tuple[str, str], date: str):
     return df["text"].values.tolist()
 
 
-# print(get_texts_for_tweets(("2019-03-05", "2019-03-25"), "2019-03-15")[0])
+def analysis_of_hydrated_tweets(dates: Tuple[str, str]):
+    # For the dates chosen, first join the hydrated tweets with the original subset of tweets
+    df = pd.read_csv(f"subsets/hydrated_tweets_{dates[0]}_{dates[1]}.csv")
+    df_original = pd.read_csv(make_relevant_df_name(dates))
+
+    df = df_original.merge(df, on="id", how="inner")
+
+    # Count and print the occurences of author_id
+    author_occurences = df["author_id"].value_counts()
+    print(author_occurences[author_occurences >= 2])
+    authors_multiple_tweets = author_occurences[author_occurences >= 2].index
+
+    # Count and print the occurences of referenced_tweets
+    rt_occurences = df["referenced_tweets"].value_counts()
+    print(rt_occurences[rt_occurences >= 5])
+
+    # Display the tweets of the authors with multiple tweets
+    for author in authors_multiple_tweets:
+        print(df[df["author_id"] == author][["stance", "created_at_x"]].values.tolist())
+        print()
+
+
+analysis_of_hydrated_tweets(("2019-03-05", "2019-03-25"))

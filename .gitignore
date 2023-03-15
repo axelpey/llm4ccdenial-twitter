@@ -1,3 +1,4 @@
 *.png
 bearer_tokens.json
 *.csv
+openai_key.txt

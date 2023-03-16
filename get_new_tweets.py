@@ -29,9 +29,9 @@ str_start_date = start_date.strftime("%Y-%m-%d")
 str_end_date = end_date.strftime("%Y-%m-%d")
 
 tweets_per_page = 100
-pages = 200
+pages = 250
 
-folder_name = f"data_collection/{str_start_date}_{str_end_date}_num_tweets_{pages * tweets_per_page}_with_loc"
+folder_name = f"data_collection/{str_start_date}_{str_end_date}_num_tweets_{pages * tweets_per_page}_with_loc_for_real"
 Path(folder_name).mkdir(parents=True, exist_ok=True)
 
 next_token = None
@@ -44,9 +44,10 @@ for page in range(1, pages + 1):
         max_results=tweets_per_page,
         start_time=start_date,
         end_time=end_date,
-        expansions=["author_id", "referenced_tweets.id"],
+        expansions=["author_id", "referenced_tweets.id", "geo.place_id"],
         user_fields=["description", "created_at", "location"],
         tweet_fields=["created_at", "public_metrics", "text", "geo"],
+        place_fields=["country", "country_code", "geo", "name", "place_type"],
     )
     # Save the results in a json file for this page
     # in data_collection/{str_start_date}_{str_end_date}/tweets_page_{page}.json"
@@ -65,6 +66,7 @@ for page in range(1, pages + 1):
             "id": tweet.id,
             "text": tweet.text,
             "author_id": tweet.author_id,
+            "geo": tweet.geo,
             "referenced_tweets": [rt.data for rt in tweet.referenced_tweets]
             if tweet.referenced_tweets is not None
             else [],
@@ -81,6 +83,13 @@ for page in range(1, pages + 1):
             ]
             if tweet.referenced_tweets is not None
             else [],
+            "place_data": next(
+                p.data
+                for p in search_results.includes["places"]
+                if p.id == tweet.geo["place_id"]
+            )
+            if tweet.geo is not None
+            else None,
         }
         tweets_data.append(tweet_data)
 

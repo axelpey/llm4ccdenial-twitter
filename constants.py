@@ -9,4 +9,4 @@ make_hydrated_df_name = (
     lambda dates: f"subsets_v{CLASSIFIER_VERSION}/hydrated_tweets_{dates[0]}_{dates[1]}.csv"
 )
 
-CLASSIFIER_VERSION = 2
+CLASSIFIER_VERSION = 1

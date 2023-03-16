@@ -22,6 +22,13 @@ def prompt_gpt35_turbo(prompt):
     return completion["choices"][0]["message"]["content"]
 
 
+def make_cc_stance_classification_prompt(tweets: List[Tuple[int, str]]):
+    if CLASSIFIER_VERSION == 1:
+        return make_cc_stance_classification_prompt_v1(tweets)
+    elif CLASSIFIER_VERSION == 2:
+        return make_cc_stance_classification_prompt_v2(tweets)
+
+
 def make_cc_stance_classification_prompt_v1(tweets: List[Tuple[int, str]]):
     tweets = [f'({tweet_id},"{tweet_text}")' for tweet_id, tweet_text, _ in tweets]
     prompt = "I want you to classify these tweets as coming from believer or denier."
@@ -84,7 +91,7 @@ def classify_tweets(dates):
 
     tweets_ids_texts = list(zip(tweets_ids, tweets_texts, tweets_author_descriptions))
 
-    prompt = make_cc_stance_classification_prompt_v2(tweets_ids_texts[:30])
+    prompt = make_cc_stance_classification_prompt(tweets_ids_texts[:30])
 
     print("Sending prompt to GPT-3.5-turbo")
     res = prompt_gpt35_turbo(prompt)

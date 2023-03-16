@@ -5,3 +5,4 @@ openai_key.txt
 gpt_calls_v*/
 manual_inspection_v*/
 subsets_v*/
+*.pyc

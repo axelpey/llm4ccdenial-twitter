@@ -127,7 +127,7 @@ def hydrate_relevant_subsets():
         df = pd.read_csv(make_relevant_df_name(dates))
         tweet_ids = [str(x) for x in df["id"].values]
 
-        tweets_data = get_tweets_data(tweet_ids[:1])
+        tweets_data = get_tweets_data(tweet_ids)
 
         df = pd.DataFrame(tweets_data)
 

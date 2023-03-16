@@ -22,8 +22,8 @@ def prompt_gpt35_turbo(prompt):
     return completion["choices"][0]["message"]["content"]
 
 
-def make_cc_stance_classification_prompt(tweets: List[Tuple[int, str]]):
-    tweets = [f'({tweet_id},"{tweet_text}")' for tweet_id, tweet_text in tweets]
+def make_cc_stance_classification_prompt_v1(tweets: List[Tuple[int, str]]):
+    tweets = [f'({tweet_id},"{tweet_text}")' for tweet_id, tweet_text, _ in tweets]
     prompt = "I want you to classify these tweets as coming from believer or denier."
     prompt += "For each tweet, give me:\n"
     prompt += " - The tweet id\n"
@@ -35,6 +35,27 @@ def make_cc_stance_classification_prompt(tweets: List[Tuple[int, str]]):
     prompt += "If you cannot classify a tweet, give it a stance of -1 and give the reason why."
     prompt += "\n\n"
     prompt += "\n".join(tweets)
+    return prompt
+
+
+def make_cc_stance_classification_prompt_v2(tweets: List[Tuple[int, str]]):
+    tweets = [
+        f'({tweet_id},"{tweet_text}", "{tweet_author_description}")'
+        for tweet_id, tweet_text, tweet_author_description in tweets
+    ]
+
+    prompt = "I want you to classify these tweets as coming from believer or denier."
+    prompt += "I will give you a list for which each tweet data will be (tweet id, tweet text, self-written description of the author)\n"
+    prompt += "For each tweet, give me:\n"
+    prompt += " - The tweet id\n"
+    prompt += " - A number between 0 and 1: 1 if the author is likely to be a climate change believer, 0 if it's likely to be a denier, 0.5 if you're unsure."
+    prompt += " - A reason for your classification, in maximum 10 words."
+    prompt += "Give me the results as a list of lists, with no line jumps, like this:\n"
+    prompt += "[[tweet_id, stance, reason], [tweet_id, stance, reason], ...]"
+    prompt += 'tweet_id is an integer, stance is either 0, 0.5 or 1, reason is a string surrounded with the "" quotes.'
+    prompt += "If you cannot classify a tweet, give it a stance of -1 and give the reason why."
+    prompt += "\n\n"
+    prompt += "[" + ",".join(tweets) + "]"
     return prompt
 
 
@@ -53,12 +74,17 @@ def classify_tweets(dates):
     # Get the tweet ids and texts from the hydrated tweets
     df = pd.read_csv(make_hydrated_df_name(dates))
     tweets_ids, tweets_texts = df["id"].values.tolist(), df["text"].values.tolist()
+    df["author_description"] = df["author"].apply(
+        lambda x: json.loads(x)["description"]
+    )
+    tweets_author_descriptions = df["author_description"].values.tolist()
+
     for index, id in enumerate(tweets_ids):
         tweets_texts[index] = get_text_to_use(df, id)
 
-    tweets_ids_texts = list(zip(tweets_ids, tweets_texts))
+    tweets_ids_texts = list(zip(tweets_ids, tweets_texts, tweets_author_descriptions))
 
-    prompt = make_cc_stance_classification_prompt(tweets_ids_texts[:30])
+    prompt = make_cc_stance_classification_prompt_v2(tweets_ids_texts[:30])
 
     print("Sending prompt to GPT-3.5-turbo")
     res = prompt_gpt35_turbo(prompt)
@@ -99,7 +125,7 @@ def compare_classified_tweets():
 
         # Get the classifications from the new classification file
         df_new_classification = pd.read_csv(
-            f"subsets_{CLASSIFIER_VERSION}/cc_stance_classification_2019-03-05_2019-03-25.csv"
+            f"subsets_v{CLASSIFIER_VERSION}/cc_stance_classification_2019-03-05_2019-03-25.csv"
         )
         # Merge the two dataframes on the tweet id
         df_merged = df_original.merge(

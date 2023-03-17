@@ -1,12 +1,25 @@
 import json
 import time
 import tweepy
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
 import glob
+import pytz
 
 from get_tweets import DateTimeEncoder
+
+
+def generate_date_ranges(start_date, end_date, interval_days=1):
+    current_date = start_date
+    date_ranges = []
+
+    while current_date < end_date:
+        next_date = current_date + timedelta(days=interval_days)
+        date_ranges.append((current_date, min(next_date, end_date)))
+        current_date = next_date
+
+    return date_ranges
 
 
 def get_new_tweets():
@@ -24,44 +37,19 @@ def get_new_tweets():
     )
 
     # Define the search parameters
-    query = "climate change OR global warming"
+    query = '("climate change" OR "global warming") -is:retweet -is:reply'
     start_date = datetime(2022, 10, 1)
     end_date = datetime(2022, 10, 28)
-    # Save as YYYY-MM-DD
-    str_start_date = start_date.strftime("%Y-%m-%d")
-    str_end_date = end_date.strftime("%Y-%m-%d")
+    interval_days = 28  # Change this value to adjust the interval length
 
-    tweets_per_page = 100
+    tweets_per_page = 500
     pages = 250
 
-    folder_name = f"data_collection/{str_start_date}_{str_end_date}_num_tweets_{pages * tweets_per_page}_with_loc_for_real"
+    date_ranges = generate_date_ranges(start_date, end_date, interval_days)
+    folder_name = f"data_collection/{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}_num_tweets_{pages * tweets_per_page}_full"
     Path(folder_name).mkdir(parents=True, exist_ok=True)
 
-    next_token = None
-
-    # Execute the search
-    for page in range(1, pages + 1):
-        search_results = client.search_all_tweets(
-            query,
-            next_token=next_token,
-            max_results=tweets_per_page,
-            start_time=start_date,
-            end_time=end_date,
-            expansions=["author_id", "referenced_tweets.id", "geo.place_id"],
-            user_fields=["description", "created_at", "location"],
-            tweet_fields=["created_at", "public_metrics", "text", "geo"],
-            place_fields=["country", "country_code", "geo", "name", "place_type"],
-        )
-        # Save the results in a json file for this page
-        # in data_collection/{str_start_date}_{str_end_date}/tweets_page_{page}.json"
-        # For each tweet, save the following fields:
-        # - id
-        # - text
-        # - author_id
-        # - referenced_tweets.id
-        # - created_at
-        # - author_data: the data for the author of the tweet, taken from the includes
-
+    def process_search_results(search_results):
         tweets_data = []
 
         for tweet in search_results.data:
@@ -91,17 +79,75 @@ def get_new_tweets():
                     for p in search_results.includes["places"]
                     if p.id == tweet.geo["place_id"]
                 )
-                if tweet.geo is not None
+                if tweet.geo is not None and "place_id" in tweet.geo
                 else None,
             }
             tweets_data.append(tweet_data)
 
-        # Write to file
-        with open(f"{folder_name}/tweets_page_{page}.json", "w") as f:
-            json.dump(tweets_data, f, indent=4, cls=DateTimeEncoder)
+        return tweets_data
 
-        next_token = search_results.meta["next_token"]
-        time.sleep(1)
+    # Execute the search
+    for date_range in date_ranges:
+        date_range = (
+            date_range[0].replace(tzinfo=pytz.UTC),
+            date_range[1].replace(tzinfo=pytz.UTC),
+        )
+        next_token = None
+        page = 1
+
+        while True:
+            print(f"Page {page}")
+            make_request = lambda: client.search_all_tweets(
+                query,
+                next_token=next_token,
+                max_results=tweets_per_page,
+                start_time=date_range[0],
+                end_time=date_range[1],
+                expansions=["author_id", "referenced_tweets.id", "geo.place_id"],
+                user_fields=["description", "created_at", "location"],
+                tweet_fields=["created_at", "public_metrics", "text", "geo"],
+                place_fields=["country", "country_code", "geo", "name", "place_type"],
+            )
+
+            try:
+                search_results = make_request()
+            except tweepy.TooManyRequests:
+                print("Too many requests, waiting 15.5 minutes...")
+                time.sleep(60 * 15.5)
+                search_results = make_request()
+
+            tweets_data = process_search_results(search_results)
+
+            if len(tweets_data) > 0:
+                last_tweet_date = tweets_data[-1]["created_at"]
+                time_elapsed = (date_range[1] - last_tweet_date).total_seconds()
+                total_time_range = (date_range[1] - date_range[0]).total_seconds()
+                proportion_covered = time_elapsed / total_time_range
+                total_pages_estimate = int(page / proportion_covered)
+                print(f"Estimated total pages: {total_pages_estimate}")
+
+            if "next_token" not in search_results.meta:
+                next_token = "end"
+            else:
+                next_token = search_results.meta["next_token"]
+
+            # Write to file
+            with open(
+                f"{folder_name}/tweets_page_{page}_from_{date_range[0].strftime('%Y-%m-%d')}_to_{date_range[1].strftime('%Y-%m-%d')}.json",
+                "w",
+            ) as f:
+                json.dump(
+                    {"data": tweets_data, "next_token": next_token},
+                    f,
+                    indent=4,
+                    cls=DateTimeEncoder,
+                )
+
+            if next_token == "end":
+                break
+
+            page += 1
+            time.sleep(1)
 
 
 def assemble_jsons_in_csv():
@@ -114,15 +160,13 @@ def assemble_jsons_in_csv():
     # id,created_at,text,author_id,referenced_tweets,author
     # 1102721226638712832,2019-03-05 00:03:22+00:00,RT @DocsEnvAus: Exciting to see @JulianBurnside running in the Kooyong seat on action on #climatechange; care for people seeking asylum and…,456416267,"[{""tweet_id"": 1102707641783017473, ""type"": ""retweeted"", ""text"": ""Exciting to see @JulianBurnside running in the Kooyong seat on action on #climatechange; care for people seeking asylum and influence big corporates out of politics. We need this level of educated debate and representation""}]","{""id"": 456416267, ""created_at"": ""2012-01-06T06:51:35+00:00"", ""description"": ""Grandma on Githabel country. Nature, climate action, politics, great outdoors, art, social justice etc. #EnoughIsEnough\nMoving to Mastodon - Maggie_May"", ""name"": ""Sarah Moles"", ""username"": ""molessarah""}"
     # 1102723437066301440,2019-03-05 00:12:09+00:00,"RT @piecetocamera: @KetanJ0 @Brandwatch News Corp, where climate change is fake &amp; paedophiles are defended (if they’re white, rich &amp; write…",1315921093,"[{""tweet_id"": 1102460497671086080, ""type"": ""retweeted"", ""text"": ""@KetanJ0 @Brandwatch News Corp, where climate change is fake &amp; paedophiles are defended (if they\u2019re white, rich &amp; write opinion pieces for them)""}]","{""id"": 1315921093, ""created_at"": ""2013-03-30T06:48:17+00:00"", ""description"": ""Fact checking is everybody's business.\n\nPARODY (just kidding)\n\n\ud83c\udf32\ud83c\udf0f\ud83c\udf32"", ""name"": ""NOT a Canberra Bubbler \ud83c\udf32\ud83c\udf0f\ud83c\udf32"", ""username"": ""MSMWatchdog2013""}"
-    folder_name = (
-        "data_collection/2022-10-01_2022-10-28_num_tweets_25000_with_loc_for_real"
-    )
+    folder_name = "data_collection/2022-10-01_2022-10-28_num_tweets_125000_full"
     json_files = glob.glob(f"{folder_name}/tweets_page_*.json")
     tweets_list = []
 
     for json_file in json_files:
         with open(json_file, "r") as f:
-            tweets_data = json.load(f)
+            tweets_data = json.load(f)["data"]
 
         for tweet in tweets_data:
             tweet_dict = {
@@ -140,5 +184,35 @@ def assemble_jsons_in_csv():
     df.to_csv(csv_file_name, index=False)
 
 
+def sample_N_tweets_from_csv(N):
+    # Sample N tweets from the csv file created above
+    # The sample should not be stratified by the number of referenced tweets
+    df = pd.read_csv("combined_tweets_data.csv")
+
+    print(f"Sampling {N} tweets out of {len(df)} tweets")
+    print(f"That is {N / len(df) * 100:.2f}% of the total tweets")
+    print(f"Per day, that is in average {N / 28:.2f} tweets")
+
+    cost_openai_api_for_1000_tokens = 0.002
+    batch_size = 2500  # 2500 tokens for a batch of 30 tweets
+    tweets_per_batch = 30
+    batch_cost = cost_openai_api_for_1000_tokens * batch_size / 1000
+    num_batches = int(N / tweets_per_batch)
+    total_cost = num_batches * batch_cost
+
+    print(
+        f"Cost of classifying {N} tweets: ${total_cost:.2f} (assuming {batch_size} tokens per batch)"
+    )
+
+    time_to_classify_one_batch = 30  # seconds
+    total_classify_time = num_batches * time_to_classify_one_batch
+    print(f"Time to classify {N} tweets: {total_classify_time / 60:.2f} minutes")
+
+    df = df.sample(n=N)
+    df.to_csv("subsets_v1/sampled_tweets_data.csv", index=False)
+
+
 if __name__ == "__main__":
-    assemble_jsons_in_csv()
+    # get_new_tweets()
+    # assemble_jsons_in_csv()
+    sample_N_tweets_from_csv(12500)

@@ -2,6 +2,7 @@ from typing import List, Tuple
 import openai
 import pandas as pd
 import json
+from datetime import datetime
 
 from constants import (
     RELEVANT_TIMESPANS,
@@ -68,6 +69,7 @@ def make_cc_stance_classification_prompt_v2(tweets: List[Tuple[int, str]]):
 
 def get_text_to_use(df, tweet_id):
     # If the text is an RT, get the original tweet text
+    return df[df["id"] == tweet_id]["text"].values[0]
     if df[df["id"] == tweet_id]["text"].values[0].startswith("RT @"):
         ref_text = json.loads(df[df["id"] == tweet_id]["referenced_tweets"].values[0])[
             0
@@ -91,23 +93,48 @@ def classify_tweets(dates):
 
     tweets_ids_texts = list(zip(tweets_ids, tweets_texts, tweets_author_descriptions))
 
-    prompt = make_cc_stance_classification_prompt(tweets_ids_texts[:30])
+    res_array = []
+    batch_size = 30
+    t = datetime.now()
 
-    print("Sending prompt to GPT-3.5-turbo")
-    res = prompt_gpt35_turbo(prompt)
-    open(f"gpt_calls_v{CLASSIFIER_VERSION}/res_{dates}_1.txt", "w").write(res)
+    for i in range(0, len(tweets_ids_texts), batch_size):
+        batch = tweets_ids_texts[i : i + batch_size]
+        prompt = make_cc_stance_classification_prompt(batch)
 
-    res = json.loads(res.replace("'", '"'))
+        print(prompt)
+        return
+        print(f"Sending prompt for batch {i//batch_size + 1} to GPT-3.5-turbo")
+        res = prompt_gpt35_turbo(prompt)
+        open(
+            f"gpt_calls_v{CLASSIFIER_VERSION}/res_{dates}_{i//batch_size + 1}.txt", "w"
+        ).write(res)
 
-    res_array = [
-        {"id": x[0], "stance": x[1], "reason": x[2], "text": get_text_to_use(df, x[0])}
-        for x in res
-    ]
+        try:
+            res = json.loads(res.replace("'", '"'))
+
+            res_array.extend(
+                [
+                    {
+                        "id": x[0],
+                        "stance": x[1],
+                        "reason": x[2],
+                        "text": get_text_to_use(df, x[0]),
+                    }
+                    for x in res
+                ]
+            )
+        except:
+            print(f"Error with batch {i//batch_size + 1}. Continuing...")
+        print(f"Batch {i//batch_size + 1} done in {datetime.now() - t}")
+        print(
+            f"Estimated time remaining: {(datetime.now() - t) * (len(tweets_ids_texts) - i) / batch_size}"
+        )
+
     df = pd.DataFrame(res_array)
 
     # Write the results to a file
     df.to_csv(
-        f"subsets_v{CLASSIFIER_VERSION}/cc_stance_classification_2019-03-05_2019-03-25.csv",
+        f"subsets_v{CLASSIFIER_VERSION}/cc_stance_classification_{dates}.csv",
         index=False,
     )
 
@@ -157,5 +184,5 @@ def compare_classified_tweets():
 
 
 if __name__ == "__main__":
-    # classify_tweets(RELEVANT_TIMESPANS[0])
-    compare_classified_tweets()
+    classify_tweets(RELEVANT_TIMESPANS[2])
+    # compare_classified_tweets()

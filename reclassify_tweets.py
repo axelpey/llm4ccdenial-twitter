@@ -1,3 +1,4 @@
+import re
 from typing import List, Tuple
 import openai
 import pandas as pd
@@ -25,7 +26,7 @@ def prompt_gpt35_turbo(prompt):
 
 def make_cc_stance_classification_prompt(tweets: List[Tuple[int, str]]):
     if CLASSIFIER_VERSION == 1:
-        return make_cc_stance_classification_prompt_v1(tweets)
+        return make_cc_stance_classification_prompt_v3(tweets)
     elif CLASSIFIER_VERSION == 2:
         return make_cc_stance_classification_prompt_v2(tweets)
 
@@ -41,6 +42,23 @@ def make_cc_stance_classification_prompt_v1(tweets: List[Tuple[int, str]]):
     prompt += "[[tweet_id, stance, reason], [tweet_id, stance, reason], ...]"
     prompt += 'tweet_id is an integer, stance is either 0, 0.5 or 1, reason is a string surrounded with the "" quotes.'
     prompt += "If you cannot classify a tweet, give it a stance of -1 and give the reason why."
+    prompt += "\n\n"
+    prompt += "\n".join(tweets)
+    return prompt
+
+
+def make_cc_stance_classification_prompt_v3(tweets: List[Tuple[int, str]]):
+    tweets = [f'({tweet_id},"{tweet_text}")' for tweet_id, tweet_text, _ in tweets]
+    prompt = "I want you to classify these tweets as coming from believer or denier, and give me a sentiment and aggressivity score.\n"
+    prompt += "For each tweet, give me:\n"
+    prompt += " - The tweet id\n"
+    prompt += " - A number between 0 and 1: Precisely 1 if the author likely to be a climate change believer, 0 if it's likely to be a denier, 0.5 if you're unsure.\n"
+    prompt += " - A float between 0 and 1: closer to 1 if the tweet is positive, closer to 0 if it's negative, closer to 0.5 if it's neutral.\n"
+    prompt += " - A number between 0 and 1: Precisely 1 if the tweet is aggressive, 0 if it's not aggressive.\n"
+    prompt += "Give me the results for each tweet on a new line, like this:\n"
+    prompt += "tweet_id, stance, sentiment, aggressivity\n"
+    prompt += "tweet_id is an integer, stance is either 0, 0.5 or 1, sentiment is floating between 0 and 1, aggressivity is either 0 or 1.\n"
+    prompt += "If you cannot classify a tweet stance, give it a stance of -1."
     prompt += "\n\n"
     prompt += "\n".join(tweets)
     return prompt
@@ -101,29 +119,35 @@ def classify_tweets(dates):
         batch = tweets_ids_texts[i : i + batch_size]
         prompt = make_cc_stance_classification_prompt(batch)
 
-        print(prompt)
-        return
         print(f"Sending prompt for batch {i//batch_size + 1} to GPT-3.5-turbo")
         res = prompt_gpt35_turbo(prompt)
+
         open(
             f"gpt_calls_v{CLASSIFIER_VERSION}/res_{dates}_{i//batch_size + 1}.txt", "w"
         ).write(res)
 
         try:
-            res = json.loads(res.replace("'", '"'))
+            # remove the line jumps at the beginning of res until the first character
+            res = re.sub(r"^\s+", "", res)
+            res = res.split("\n")
+            for l in range(len(res)):
+                t_id, stance, sentiment, agg = res[l].split(",")
+                res[l] = [int(t_id), float(stance), float(sentiment), int(agg)]
 
             res_array.extend(
                 [
                     {
                         "id": x[0],
                         "stance": x[1],
-                        "reason": x[2],
+                        "sentiment": x[2],
+                        "aggressivity": x[3],
                         "text": get_text_to_use(df, x[0]),
                     }
                     for x in res
                 ]
             )
-        except:
+        except Exception as e:
+            print(e)
             print(f"Error with batch {i//batch_size + 1}. Continuing...")
         print(f"Batch {i//batch_size + 1} done in {datetime.now() - t}")
         print(

@@ -212,7 +212,77 @@ def sample_N_tweets_from_csv(N):
     df.to_csv("subsets_v1/sampled_tweets_data.csv", index=False)
 
 
+# Now we want to sample in particular from users who have been tweeting before, on the day of the soup
+# (2022-10-14) and after.
+def sample_tweets_for_regular_posters():
+    df = pd.read_csv("combined_tweets_data.csv")
+
+    print(
+        f"Sampling tweets from users who have been tweeting before, on the day of the soup (2022-10-14) and after."
+    )
+    print(f"Total number of tweets: {len(df)}")
+
+    # Convert 'created_at' to datetime objects
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+
+    soup_day = pd.Timestamp("2022-10-14", tz="UTC")
+
+    # Filter tweets based on the specified date range
+    before_date = soup_day - pd.Timedelta(days=1)
+    after_date = soup_day + pd.Timedelta(days=1)
+
+    before_tweets = df[df["created_at"] <= before_date]
+    on_day_tweets = df[
+        (df["created_at"] > before_date) & (df["created_at"] <= after_date)
+    ]
+    after_tweets = df[df["created_at"] > after_date]
+
+    # Get the users who have tweeted before, on the day, and after the specified date
+    users_before = set(before_tweets["author_id"])
+    users_on_day = set(on_day_tweets["author_id"])
+    users_after = set(after_tweets["author_id"])
+
+    regular_users = users_before.intersection(users_on_day).intersection(users_after)
+
+    # Filter the DataFrame to only include tweets from regular users
+    regular_user_tweets = df[df["author_id"].isin(regular_users)]
+
+    print(f"Total number of tweets from regular users: {len(regular_user_tweets)}")
+
+    user_counts = regular_user_tweets["author_id"].value_counts()
+    print(f"Min tweets per regular user: {user_counts.min()}")
+    print(f"Max tweets per regular user: {user_counts.max()}")
+    print(f"Mean tweets per regular user: {user_counts.mean()}")
+    print(f"Median tweets per regular user: {user_counts.median()}")
+    print(f"Std tweets per regular user: {user_counts.std()}")
+    print(f"25% quantile: {user_counts.quantile(0.25)}")
+    print(f"75% quantile: {user_counts.quantile(0.75)}")
+
+    # Get the user IDs of regular users that post below the 75% quartile of posts
+    quartile_75 = user_counts.quantile(0.75)
+    regular_users_below_quartile_75 = user_counts[
+        user_counts <= quartile_75
+    ].index.tolist()
+
+    print(
+        f"Number of regular users below the 75% quartile: {len(regular_users_below_quartile_75)}"
+    )
+
+    regular_users_75_tweets = df[df["author_id"].isin(regular_users_below_quartile_75)]
+
+    print(
+        f"Number of tweets from regular users below the 75% quartile: {len(regular_users_75_tweets)}"
+    )
+
+    regular_users_75_tweets.to_csv(
+        "subsets_v1/regular_users_75_tweets.csv", index=False
+    )
+
+    return regular_users_75_tweets
+
+
 if __name__ == "__main__":
     # get_new_tweets()
     # assemble_jsons_in_csv()
-    sample_N_tweets_from_csv(12500)
+    # sample_N_tweets_from_csv(12500)
+    sample_tweets_for_regular_posters()

@@ -3,7 +3,7 @@ bearer_tokens.json
 api_keys.json
 *.csv
 openai_key.txt
-gpt_calls_v*/
+*gpt_calls_v*/
 manual_inspection_v*/
 subsets_v*/
 *.pyc

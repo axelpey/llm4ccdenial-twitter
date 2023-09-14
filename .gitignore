@@ -8,3 +8,5 @@ manual_inspection_v*/
 subsets_v*/
 *.pyc
 data_collection/
+
+.DS_Store

@@ -110,6 +110,7 @@ def classify_tweets(dates):
         tweets_texts[index] = get_text_to_use(df, id)
 
     tweets_ids_texts = list(zip(tweets_ids, tweets_texts, tweets_author_descriptions))
+    tweets_ids_texts = tweets_ids_texts[:30]
 
     res_array = []
     batch_size = 30
@@ -178,12 +179,18 @@ def compare_classified_tweets():
         # Join the two dataframes on the tweet id
         df_original = df_relevant.merge(
             df_hydrated[["id", "text"]], on="id", how="left"
-        )[["id", "stance"]]
-        df_original = df_original.rename(columns={"stance": "original_stance"})
+        )[["id", "stance", "sentiment", "aggressiveness"]]
+        df_original = df_original.rename(
+            columns={
+                "stance": "original_stance",
+                "sentiment": "original_sentiment",
+                "aggressiveness": "original_aggressiveness",
+            }
+        )
 
         # Get the classifications from the new classification file
         df_new_classification = pd.read_csv(
-            f"subsets_v{CLASSIFIER_VERSION}/cc_stance_classification_2019-03-05_2019-03-25.csv"
+            f"subsets_v{CLASSIFIER_VERSION}/cc_stance_classification_{dates}.csv"
         )
         # Merge the two dataframes on the tweet id
         df_merged = df_original.merge(
@@ -205,8 +212,11 @@ def compare_classified_tweets():
         df_diff.to_csv(
             f"manual_inspection_v{CLASSIFIER_VERSION}/diff_cc_stance_classification_2019-03-05_2019-03-25.csv",
         )
+        df_merged.to_csv(
+            f"manual_inspection_v{CLASSIFIER_VERSION}/merged_cc_stance_classification_2019-03-05_2019-03-25.csv",
+        )
 
 
 if __name__ == "__main__":
-    classify_tweets(RELEVANT_TIMESPANS[2])
-    # compare_classified_tweets()
+    # classify_tweets(RELEVANT_TIMESPANS[0])
+    compare_classified_tweets()

@@ -149,7 +149,7 @@ def plot_daily_metric(df, start_date, end_date, title, filename, metric):
     df_year_month_day_std = df_subset.groupby("year_month_day").std()
 
     # Plot the mean line
-    plt.figure(figsize=(8, 3))
+    plt.figure(figsize=(8, 5))
     plt.plot(df_year_month_day_mean.index, df_year_month_day_mean[metric], label="Mean")
 
     # Plot the standard deviation as a shaded area around the mean line
@@ -187,14 +187,14 @@ plot_daily_metric(
 )
 
 
-# plot_daily_metric(
-#     df,
-#     "2019-03-05",
-#     "2019-03-25",
-#     "Mean aggressiveness around 2019-03-15",
-#     "tweet_aggressiveness_03-15.png",
-#     "aggressiveness",
-# )
+plot_daily_metric(
+    df,
+    "2019-03-05",
+    "2019-03-25",
+    "Mean aggressiveness around 2019-03-15",
+    "tweet_aggressiveness_03-15.png",
+    "aggressiveness",
+)
 
 plot_daily_metric(
     df,
@@ -217,14 +217,14 @@ plot_daily_metric(
 )
 
 
-# plot_daily_metric(
-#     df,
-#     "2019-09-10",
-#     "2019-09-30",
-#     "Mean aggressiveness around 2019-09-20",
-#     "tweet_aggressiveness_09-20.png",
-#     "aggressiveness",
-# )
+plot_daily_metric(
+    df,
+    "2019-09-10",
+    "2019-09-30",
+    "Mean aggressiveness around 2019-09-20",
+    "tweet_aggressiveness_09-20.png",
+    "aggressiveness",
+)
 
 
 plot_daily_metric(
